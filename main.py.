@@ -1,0 +1,61 @@
+import os
+import time
+import requests
+import threading
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+
+TOKEN = os.getenv("BOT_TOKEN")
+CHAT_IDS = set()
+
+def get_price():
+    url = "https://api.binance.com/api/v3/ticker/price"
+    response = requests.get(
+        url,
+        params={"symbol": "USDTRUB"},
+        timeout=10
+    )
+    response.raise_for_status()
+    return float(response.json()["price"])
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    CHAT_IDS.add(update.effective_chat.id)
+    await update.message.reply_text(
+        "Бот запущен. Курс USDT/RUB будет приходить каждую минуту.\n"
+        "Команда /price — узнать курс сейчас."
+    )
+
+async def price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        value = get_price()
+        await update.message.reply_text(f"USDT/RUB: {value:.4f} ₽")
+    except Exception:
+        await update.message.reply_text("Не удалось получить курс. Попробуй позже.")
+
+async def send_prices(app):
+    while True:
+        try:
+            value = get_price()
+            message = f"Курс USDT/RUB: {value:.4f} ₽"
+            for chat_id in list(CHAT_IDS):
+                try:
+                    await app.bot.send_message(chat_id, message)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        await asyncio.sleep(60)
+
+import asyncio
+
+async def post_init(app):
+    asyncio.create_task(send_prices(app))
+
+def main():
+    app = Application.builder().token(TOKEN).post_init(post_init).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("price", price))
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
